@@ -19,7 +19,11 @@ jobs:
       - name: Install webview-ui Dependencies
         run: |
           cd webview-ui
-          npm ci
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
 
 
       - name: Analyze Build Context
