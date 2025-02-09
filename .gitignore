@@ -25,6 +25,12 @@ docs/_site/
 
 #Local lint config
 .eslintrc.local.json
-
+webview-ui/tsbuildinfo
+>>>>>>> bf8cf158 (adding tsbuildinfo)
+======= 
 #Logging
 logs
+webview-ui/tsbuildinfo
+=======
+webview-ui/tsbuildinfo
+>>>>>>> bf8cf158 (adding tsbuildinfo)
