@@ -28,8 +28,10 @@ jobs:
           else
             npm install
           fi
-
-
+      - name: List webview-ui/node_modules Contents
+        run: |
+          echo "Listing contents of webview-ui/node_modules:"
+          ls -la webview-ui/node_modules || echo "webview-ui/node_modules not found"
       - name: Analyze Build Context
         uses: actions/github-script@v7
         id: build-analysis
