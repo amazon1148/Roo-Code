@@ -12,13 +12,15 @@ jobs:
   release:
     # Removed conditional check to ensure the job runs
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0  # Fetch all history for file analysis
-          clean: true
+      - name: Install webview-ui Dependencies
+        run: |
+          cd webview-ui
+          npm ci
+
 
       - name: Analyze Build Context
         uses: actions/github-script@v7
