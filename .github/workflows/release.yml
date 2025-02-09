@@ -1,0 +1,204 @@
+# This workflow triggers on commits pushed to the origin repository (main branch) and can also be triggered manually.
+
+name: Release VS Code Extension
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  release:
+    # Removed conditional check to ensure the job runs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: d5ed7a8de70f500a1c70a012588f29da14f5be97
+          fetch-depth: 0  # Fetch all history for file analysis
+          clean: true
+
+      - name: Analyze Build Context
+        uses: actions/github-script@v7
+        id: build-analysis
+        with:
+          script: |
+            const { execSync } = require('child_process');
+            
+            // Get files that triggered the build
+            const triggeredFiles = execSync('git diff --name-status HEAD^').toString();
+            
+            // Get last modification info for key build files
+            const keyFiles = [
+              'package.json',
+              'tsconfig.json',
+              'webpack.config.js',
+              'src/extension.ts'
+            ];
+            
+            const fileInfo = {};
+            for (const file of keyFiles) {
+              try {
+                const hash = execSync(`git rev-parse HEAD:${file}`).toString().trim();
+                const lastModified = execSync(`git log -1 --format=%cd ${file}`).toString().trim();
+                const author = execSync(`git log -1 --format=%an ${file}`).toString().trim();
+                fileInfo[file] = { hash, lastModified, author };
+              } catch (e) {
+                fileInfo[file] = { error: 'File not found' };
+              }
+            }
+            
+            // Create build summary
+            const summary = `## 🔍 Build Context Analysis
+            
+            ### 🔄 Files That Triggered Build
+            \`\`\`
+            ${triggeredFiles}
+            \`\`\`
+            
+            ### 📦 Key Build Files
+            ${Object.entries(fileInfo).map(([file, info]) => `
+            #### ${file}
+            - Commit: \`${info.hash || 'N/A'}\`
+            - Last Modified: ${info.lastModified || 'N/A'}
+            - Last Author: ${info.author || 'N/A'}
+            `).join('\n')}
+            `;
+            
+            // Write to step summary
+            await core.summary
+              .addRaw(summary)
+              .write();
+            
+            return fileInfo;
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18.x
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Run vscode:prepublish Diagnostic
+        run: |
+          echo "---------- DIAGNOSTIC STEP: Prepublish & Compile ----------"
+          echo "Running: npm run vscode:prepublish"
+          npm run vscode:prepublish
+          echo "---------------------------------------------------------"
+          echo "Diagnostic: Listing contents of 'extension/out/src' directory:"
+          ls -la extension/out/src || echo "Directory 'extension/out/src' not found."
+          echo "---------------------------------------------------------"
+          echo "Diagnostic: tsconfig.json 'outDir' setting (should be 'extension/out/src'):"
+          grep -E '"outDir":' tsconfig.json || echo "No outDir defined in tsconfig.json."
+          echo "---------------------------------------------------------"
+          echo "Diagnostic: Verifying that 'extension/out/src/extension.js' exists:"
+          if [ -f extension/out/src/extension.js ]; then
+            echo "Success: 'extension/out/src/extension.js' found."
+          else
+            echo "ERROR: 'extension/out/src/extension.js' NOT found."
+            echo "Please check the following:"
+            echo "  1. Did the compile step (tsc/esbuild) run successfully? Check the compile output above."
+            echo "  2. Is tsconfig.json configured with 'outDir': 'extension/out/src'?"
+            echo "  3. Could .vscodeignore be excluding the output directory? Review its contents."
+          fi
+          echo "---------------------------------------------------------"
+      - name: Package extension
+        run: npm run package:vsce
+
+      - name: Analyze VSIX Package
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const crypto = require('crypto');
+            const { execSync } = require('child_process');
+            
+            // Find VSIX file
+            const vsixFile = fs.readdirSync('.')
+              .find(file => file.endsWith('.vsix'));
+            
+            if (!vsixFile) {
+              throw new Error('No VSIX file found');
+            }
+            
+            // Get VSIX details
+            const stats = fs.statSync(vsixFile);
+            const hash = crypto
+              .createHash('sha256')
+              .update(fs.readFileSync(vsixFile))
+              .digest('hex');
+            
+            // Extract VSIX contents list
+            const contents = execSync(`unzip -l ${vsixFile}`).toString();
+            
+            const vsixInfo = {
+              name: vsixFile,
+              size: stats.size,
+              sha256: hash,
+              created: stats.birthtime,
+              contents: contents
+            };
+            
+            // Create VSIX summary
+            const summary = `## 📦 VSIX Package Analysis
+            
+            ### File Details
+            - Name: ${vsixInfo.name}
+            - Size: ${(vsixInfo.size / 1024 / 1024).toFixed(2)} MB
+            - SHA256: \`${vsixInfo.sha256}\`
+            - Created: ${vsixInfo.created}
+            
+            ### 📄 Package Contents
+            \`\`\`
+            ${vsixInfo.contents}
+            \`\`\`
+            `;
+            
+            // Add to step summary
+            await core.summary
+              .addRaw(summary)
+              .write();
+            
+            // Create artifact with detailed analysis
+            fs.writeFileSync('vsix-analysis.json', JSON.stringify(vsixInfo, null, 2));
+            
+            // Set outputs
+            core.setOutput('vsix_path', vsixFile);
+            core.setOutput('vsix_hash', vsixInfo.sha256);
+
+      - name: Upload Build Analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-analysis
+          path: |
+            vsix-analysis.json
+          if-no-files-found: error
+
+      - name: Upload VSIX Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix-extension
+          path: ${{ env.VSIX_PATH }}
+          if-no-files-found: error
+
+      - name: Upload to Azure Blob Storage
+        uses: Azure/CLI@v1
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az storage blob upload \
+              --account-name "${{ secrets.AZURE_STORAGE_ACCOUNT }}" \
+              --container-name "${{ secrets.AZURE_CONTAINER_NAME }}" \
+              --name "$(basename ${{ env.VSIX_PATH }})" \
+              --file "${{ env.VSIX_PATH }}" \
+              --auth-mode anonymous \
+              --sas-token "${{ secrets.AZURE_SAS_TOKEN }}"
+        env: {}
