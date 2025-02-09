@@ -275,7 +275,7 @@
   },
   "scripts": {
     "build": "npm run build:webview && npm run vsix",
-    "build:webview": "cd webview-ui && npm run build",
+    "build:webview": "cd webview-ui && echo \"Current working directory: $(pwd)\" && echo \"Node version: $(node -v)\" && echo \"NPM version: $(npm -v)\" && npm list react react-dom @vscode/webview-ui-toolkit/react @types/react @types/react-dom && rm -rf node_modules package-lock.json && npm ci --verbose && npm run build",
     "changeset": "changeset",
     "check-types": "tsc --noEmit",
     "compile": "tsc -p . --outDir out && node esbuild.js",
