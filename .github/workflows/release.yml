@@ -16,7 +16,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: d5ed7a8de70f500a1c70a012588f29da14f5be97
+          ref: main
           fetch-depth: 0  # Fetch all history for file analysis
           clean: true
 
